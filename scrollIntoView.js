@@ -1,9 +1,14 @@
 var COMPLETE = 'complete',
     CANCELED = 'canceled';
 
-function raf(task){
-    if('requestAnimationFrame' in window){
-        return window.requestAnimationFrame(task);
+function raf(task, parent){
+    // firefox was not able to scroll in the first try if the script was injected inside an iframe
+    // by allowing the animation to performed in the window's scope firefox started to behave
+    // as expected. There were some cases where the parent was the window itself and that's the
+    // reason behind this validation
+    var elemWindow = parent.ownerDocument ? parent.ownerDocument.defaultView : parent;
+    if('requestAnimationFrame' in elemWindow){
+        return elemWindow.requestAnimationFrame(task);
     }
 
     setTimeout(task, 16);
@@ -101,7 +106,7 @@ function animate(parent){
         return animate(parent);
     }
 
-    raf(animate.bind(null, parent));
+    raf(animate.bind(null, parent), parent);
 }
 function transitionScrollTo(target, parent, settings, callback){
     var idle = !parent._scrollSettings,
