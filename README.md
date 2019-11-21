@@ -1,7 +1,9 @@
+
 ![scroll-into-view](/scrollintoview.png) ![example-gif](/scrollIntoViewExample.gif)
 
+[![Build Status](https://travis-ci.org/KoryNunn/scroll-into-view.svg?branch=master)](https://travis-ci.org/KoryNunn/scroll-into-view)
 [![Backers on Open Collective](https://opencollective.com/scroll-into-view/backers/badge.svg)](#backers)
-[![Sponsors on Open Collective](https://opencollective.com/scroll-into-view/sponsors/badge.svg)](#sponsors) 
+[![Sponsors on Open Collective](https://opencollective.com/scroll-into-view/sponsors/badge.svg)](#sponsors)
 ## What
 
 Scrolls an element into view
@@ -63,7 +65,16 @@ scrollIntoView(someElement, {
         // You can override this check by passing an `isScrollable` function to settings:
 
         return defaultIsScrollable(target) || ~target.className.indexOf('scrollable');
-    }
+    },
+
+    isWindow: function(target){
+        // If you need special detection of the window object for some reason, you can do it here.
+        return target.self === target;
+    },
+
+    cancellable: true, // default is true, set to false to prevent users from cancelling the scroll with a touch or mousewheel
+
+    maxSynchronousAlignments: 3 // default is 3. Maximum number of times to try and align elements synchronously before completing.
 
 });
 ```
@@ -105,7 +116,7 @@ If you want to use this module without browserify, you can use `scrollIntoView.m
 
 ## Contributors
 
-This project exists thanks to all the people who contribute. 
+This project exists thanks to all the people who contribute.
 <a href="https://github.com/KoryNunn/scroll-into-view/graphs/contributors"><img src="https://opencollective.com/scroll-into-view/contributors.svg?width=890&button=false" /></a>
 
 
