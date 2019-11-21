@@ -23,6 +23,13 @@ window.addEventListener('load', function(){
     }
     align();
 
+    function uncancellableAlign(){
+        target.textContent = 'scrolling';
+        scrollIntoView(target, { time: 2000, cancellable: false }, function(type){
+            target.textContent = type;
+        });
+    }
+
     function ease(){
         target.textContent = 'scrolling';
         scrollIntoView(target, {
@@ -57,27 +64,33 @@ window.addEventListener('load', function(){
             target.textContent = type;
         });
         side = (side + 1) % 2;
-        button3.textContent = buttonText();
+        menuAlignButton.textContent = buttonText();
     }
 
-    var button,
-        button2;
+    var alignButton,
+        uncancellableAlignButton,
+        easeButton,
+        menuAlignButton;
 
     crel(menu,
-        button = crel('button', {'style':'width: 190px'},
+        alignButton = crel('button', {'style':'width: 190px'},
             'scroll into view'
         ),
-        button2 = crel('button', {'style':'width: 190px'},
+        uncancellableAlignButton = crel('button', {'style':'width: 190px'},
+            'uncancellable scroll into view'
+        ),
+        easeButton = crel('button', {'style':'width: 190px'},
             'scroll into view with custom easing'
         ),
-        button3 = crel('button', {'style':'width: 190px'},
+        menuAlignButton = crel('button', {'style':'width: 190px'},
             buttonText()
         )
     );
 
-    button.addEventListener('click', align);
-    button2.addEventListener('click', ease);
-    button3.addEventListener('click', menuAlign);
+    alignButton.addEventListener('click', align);
+    uncancellableAlignButton.addEventListener('click', uncancellableAlign);
+    easeButton.addEventListener('click', ease);
+    menuAlignButton.addEventListener('click', menuAlign);
 });
 },{"../":3,"crel":2}],2:[function(require,module,exports){
 //Copyright (C) 2012 Kory Nunn
@@ -237,8 +250,10 @@ function setElementScroll(element, x, y){
     }
 }
 
-function getTargetScrollLocation(target, parent, align){
-    var targetPosition = target.getBoundingClientRect(),
+function getTargetScrollLocation(scrollSettings, parent){
+    var align = scrollSettings.align,
+        target = scrollSettings.target,
+        targetPosition = target.getBoundingClientRect(),
         parentPosition,
         x,
         y,
@@ -253,7 +268,7 @@ function getTargetScrollLocation(target, parent, align){
         leftScalar = leftAlign,
         topScalar = topAlign;
 
-    if(parent.self === parent){
+    if(scrollSettings.isWindow(parent)){
         targetWidth = Math.min(targetPosition.width, parent.innerWidth);
         targetHeight = Math.min(targetPosition.height, parent.innerHeight);
         x = targetPosition.left + parent.pageXOffset - parent.innerWidth * leftScalar + targetWidth * leftScalar;
@@ -288,24 +303,22 @@ function getTargetScrollLocation(target, parent, align){
 
 function animate(parent){
     var scrollSettings = parent._scrollSettings;
+
     if(!scrollSettings){
         return;
     }
 
-    var location = getTargetScrollLocation(scrollSettings.target, parent, scrollSettings.align),
+    var maxSynchronousAlignments = scrollSettings.maxSynchronousAlignments;
+
+    var location = getTargetScrollLocation(scrollSettings, parent),
         time = Date.now() - scrollSettings.startTime,
         timeValue = Math.min(1 / scrollSettings.time * time, 1);
 
-    if(
-        time > scrollSettings.time &&
-        scrollSettings.endIterations > 3
-    ){
+    if(scrollSettings.endIterations >= maxSynchronousAlignments){
         setElementScroll(parent, location.x, location.y);
         parent._scrollSettings = null;
         return scrollSettings.end(COMPLETE);
     }
-
-    scrollSettings.endIterations++;
 
     var easeValue = 1 - scrollSettings.ease(timeValue);
 
@@ -314,19 +327,24 @@ function animate(parent){
         location.y - location.differenceY * easeValue
     );
 
-    // At the end of animation, loop synchronously
-    // to try and hit the taget location.
     if(time >= scrollSettings.time){
+        scrollSettings.endIterations++;
         return animate(parent);
     }
 
     raf(animate.bind(null, parent), parent);
 }
+
+function defaultIsWindow(target){
+    return target.self === target
+}
+
 function transitionScrollTo(target, parent, settings, callback){
     var idle = !parent._scrollSettings,
         lastSettings = parent._scrollSettings,
         now = Date.now(),
-        endHandler;
+        cancelHandler,
+        passiveOptions = { passive: true };
 
     if(lastSettings){
         lastSettings.end(CANCELED);
@@ -338,8 +356,16 @@ function transitionScrollTo(target, parent, settings, callback){
             parent.parentElement._scrollSettings.end(endType);
         }
         callback(endType);
-        parent.removeEventListener('touchstart', endHandler, { passive: true });
-        parent.removeEventListener('wheel', endHandler, { passive: true });
+        if(cancelHandler){
+            parent.removeEventListener('touchstart', cancelHandler, passiveOptions);
+            parent.removeEventListener('wheel', cancelHandler, passiveOptions);
+        }
+    }
+
+    var maxSynchronousAlignments = settings.maxSynchronousAlignments;
+
+    if(maxSynchronousAlignments == null){
+        maxSynchronousAlignments = 3;
     }
 
     parent._scrollSettings = {
@@ -349,12 +375,16 @@ function transitionScrollTo(target, parent, settings, callback){
         time: settings.time + (lastSettings ? now - lastSettings.startTime : 0),
         ease: settings.ease,
         align: settings.align,
+        isWindow: settings.isWindow || defaultIsWindow,
+        maxSynchronousAlignments: maxSynchronousAlignments,
         end: end
     };
 
-    endHandler = end.bind(null, CANCELED);
-    parent.addEventListener('touchstart', endHandler, { passive: true });
-    parent.addEventListener('wheel', endHandler, { passive: true });
+    if(!('cancellable' in settings) || settings.cancellable){
+        cancelHandler = end.bind(null, CANCELED);
+        parent.addEventListener('touchstart', cancelHandler, passiveOptions);
+        parent.addEventListener('wheel', cancelHandler, passiveOptions);
+    }
 
     if(idle){
         animate(parent);
@@ -394,7 +424,7 @@ module.exports = function(target, settings, callback){
     settings.ease = settings.ease || function(v){return 1 - Math.pow(1 - v, v / 2);};
 
     var parent = target.parentElement,
-        parents = 0;
+        parents = 1;
 
     function done(endType){
         parents--;
@@ -407,6 +437,11 @@ module.exports = function(target, settings, callback){
     var isScrollable = settings.isScrollable;
 
     while(parent){
+        if(parent.tagName === 'BODY'){
+            parent = parent.ownerDocument;
+            parent = parent.defaultView || parent.ownerWindow;
+        }
+        
         if(validTarget(parent, parents) && (isScrollable ? isScrollable(parent, defaultIsScrollable) : defaultIsScrollable(parent))){
             parents++;
             transitionScrollTo(target, parent, settings, done);
@@ -415,15 +450,8 @@ module.exports = function(target, settings, callback){
         parent = parent.parentElement;
 
         if(!parent){
-            if(!parents){
-                callback && callback(COMPLETE)
-            }
+            done(COMPLETE)
             break;
-        }
-
-        if(parent.tagName === 'BODY'){
-            parent = parent.ownerDocument;
-            parent = parent.defaultView || parent.ownerWindow;
         }
     }
 };
